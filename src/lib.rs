@@ -8,7 +8,7 @@ type Result<T> = std::result::Result<T, Error>;
 
 /// Extracts client IP from `CF-Connecting-IP` (Cloudflare) header
 pub fn cf_connecting_ip(header_map: &HeaderMap) -> Result<IpAddr> {
-    ip_from_last_header(header_map, &HeaderName::from_static("cf-connecting-ip"))
+    ip_from_single_header(header_map, &HeaderName::from_static("cf-connecting-ip"))
 }
 
 /// Extracts client IP from `CloudFront-Viewer-Address` (AWS CloudFront) header
@@ -47,7 +47,7 @@ pub fn cloudfront_viewer_address(header_map: &HeaderMap) -> Result<IpAddr> {
 /// `Fly-Client-IP` header through [`services.http_checks.headers`](https://fly.io/docs/reference/configuration/#services-http_checks)
 /// or [`http_service.checks.headers`](https://fly.io/docs/reference/configuration/#services-http_checks)
 pub fn fly_client_ip(header_map: &HeaderMap) -> Result<IpAddr> {
-    ip_from_last_header(header_map, &HeaderName::from_static("fly-client-ip"))
+    ip_from_single_header(header_map, &HeaderName::from_static("fly-client-ip"))
 }
 
 #[cfg(feature = "forwarded-header")]
@@ -116,19 +116,12 @@ pub fn rightmost_x_forwarded_for(header_map: &HeaderMap) -> Result<IpAddr> {
 
 /// Extracts client IP from `True-Client-IP` (Akamai, Cloudflare) header
 pub fn true_client_ip(header_map: &HeaderMap) -> Result<IpAddr> {
-    ip_from_last_header(header_map, &HeaderName::from_static("true-client-ip"))
+    ip_from_single_header(header_map, &HeaderName::from_static("true-client-ip"))
 }
 
 /// Extracts client IP from `X-Real-Ip` (Nginx) header
 pub fn x_real_ip(header_map: &HeaderMap) -> Result<IpAddr> {
-    ip_from_last_header(header_map, &HeaderName::from_static("x-real-ip"))
-}
-
-/// Parses IP from the last occurring header.
-/// Assumes the whole header value is a valid IP.
-fn ip_from_last_header(header_map: &HeaderMap, header_name: &HeaderName) -> Result<IpAddr> {
-    let header_value = last_header_value(header_map, header_name)?;
-    ip_from_header_value(header_name, header_value)
+    ip_from_single_header(header_map, &HeaderName::from_static("x-real-ip"))
 }
 
 /// Returns a decoded value of the last occurring header. Can also be used
@@ -147,6 +140,30 @@ fn last_header_value<'a>(header_map: &'a HeaderMap, header_name: &HeaderName) ->
         })
 }
 
+/// Returns a decoded value of a header that occurs only once. Multiple
+/// occurrences of the header are considered a proxy configuration error.
+fn single_header_value<'a>(header_map: &'a HeaderMap, header_name: &HeaderName) -> Result<&'a str> {
+    let mut iter = header_map.get_all(header_name).into_iter();
+
+    let Some(header_value) = iter.next() else {
+        return Err(Error::AbsentHeader {
+            header_name: header_name.to_owned(),
+        });
+    };
+
+    if iter.next().is_some() {
+        return Err(Error::SingleHeaderRequired {
+            header_name: header_name.to_owned(),
+        });
+    }
+
+    header_value
+        .to_str()
+        .map_err(|_| Error::NonAsciiHeaderValue {
+            header_name: header_name.to_owned(),
+        })
+}
+
 /// Parses IP from decoded header value.
 /// Assumes the whole header value is a valid IP.
 fn ip_from_header_value(header_name: &HeaderName, header_value: &str) -> Result<IpAddr> {
@@ -157,6 +174,13 @@ fn ip_from_header_value(header_name: &HeaderName, header_value: &str) -> Result<
             header_name: header_name.to_owned(),
             header_value: header_value.to_owned(),
         })
+}
+
+/// Parses an IP from a header that occurs only once. Multiple
+/// occurrences of the header are considered a proxy configuration error.
+fn ip_from_single_header(header_map: &HeaderMap, header_name: &HeaderName) -> Result<IpAddr> {
+    let header_value = single_header_value(header_map, header_name)?;
+    ip_from_header_value(header_name, header_value)
 }
 
 mod error {
@@ -183,6 +207,16 @@ mod error {
             header_name: HeaderName,
             /// Header value
             header_value: String,
+        },
+        /// Multiple occurrences of a header required to occur only once found
+        ///
+        /// According to the HTTP/1.1 specification (RFC 7230, Section 3.2.2):
+        /// > A sender MUST NOT generate multiple header fields with the same
+        /// > field name in a message unless either the entire field value for
+        /// > that header field is defined as a comma-separated list ...
+        SingleHeaderRequired {
+            /// Header name
+            header_name: HeaderName,
         },
         /// Forwarded header doesn't contain `for` directive
         ForwardedNoFor {
@@ -218,6 +252,10 @@ mod error {
                     f,
                     "Malformed header value for `{header_name}`: {header_value}",
                 ),
+                Error::SingleHeaderRequired { header_name } => write!(
+                    f,
+                    "Muitiple occurrences of the header are't allowed: {header_name}"
+                ),
                 Error::ForwardedNoFor { header_value } => write!(
                     f,
                     "`Forwarded` header missing `for` directive: {header_value}",
@@ -250,6 +288,78 @@ mod tests {
                 .into_iter()
                 .map(|(name, value)| (name.parse().unwrap(), value.parse().unwrap())),
         )
+    }
+
+    #[test]
+    fn test_last_header_value() {
+        let header_name_str = "my-header";
+        let header_name = HeaderName::from_static(header_name_str);
+
+        assert_eq!(
+            last_header_value(&headers([]), &header_name).unwrap_err(),
+            Error::AbsentHeader {
+                header_name: header_name.clone()
+            }
+        );
+
+        assert_eq!(
+            last_header_value(&headers([(header_name_str, "ы")]), &header_name).unwrap_err(),
+            Error::NonAsciiHeaderValue {
+                header_name: header_name.clone()
+            }
+        );
+
+        assert_eq!(
+            last_header_value(&headers([(header_name_str, "foo")]), &header_name).unwrap(),
+            "foo",
+            "single valid header"
+        );
+
+        assert_eq!(
+            last_header_value(
+                &headers([(header_name_str, "foo"), (header_name_str, "bar")]),
+                &header_name
+            )
+            .unwrap(),
+            "bar",
+            "multiple valid headers"
+        );
+    }
+
+    #[test]
+    fn test_single_header_value() {
+        let header_name_str = "my-header";
+        let header_name = HeaderName::from_static(header_name_str);
+
+        assert_eq!(
+            single_header_value(&headers([]), &header_name).unwrap_err(),
+            Error::AbsentHeader {
+                header_name: header_name.clone()
+            }
+        );
+
+        assert_eq!(
+            last_header_value(&headers([(header_name_str, "ы")]), &header_name).unwrap_err(),
+            Error::NonAsciiHeaderValue {
+                header_name: header_name.clone()
+            }
+        );
+
+        assert_eq!(
+            single_header_value(
+                &headers([(header_name_str, "foo"), (header_name_str, "bar")]),
+                &header_name
+            )
+            .unwrap_err(),
+            Error::SingleHeaderRequired {
+                header_name: header_name.clone()
+            }
+        );
+
+        assert_eq!(
+            single_header_value(&headers([(header_name_str, "foo")]), &header_name).unwrap(),
+            "foo"
+        );
     }
 
     #[test]
