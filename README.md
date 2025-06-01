@@ -33,7 +33,7 @@ Open an issue if there's an uncovered header or send a PR straight away.
 
 This project is licensed under the [MIT license][license].
 
-[.pre-commit.sh]: https://github.com/imbolc/client-ip/blob/main/pre-commit.sh
+[.pre-commit.sh]: https://github.com/imbolc/client-ip/blob/main/.pre-commit.sh
 [axum-client-ip]: https://github.com/imbolc/axum-client-ip
 [http::HeaderMap]: https://docs.rs/http/1.3.1/http/header/struct.HeaderMap.html
 [http]: https://github.com/rust-lang/rust

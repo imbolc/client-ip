@@ -248,36 +248,36 @@ mod error {
     impl fmt::Display for Error {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
-                Error::AbsentHeader { header_name } => {
+                Self::AbsentHeader { header_name } => {
                     write!(f, "Missing required header: {header_name}")
                 }
-                Error::NonAsciiHeaderValue { header_name } => write!(
+                Self::NonAsciiHeaderValue { header_name } => write!(
                     f,
                     "Header value contains non-ASCII characters: {header_name}",
                 ),
-                Error::MalformedHeaderValue {
+                Self::MalformedHeaderValue {
                     header_name,
                     header_value,
                 } => write!(
                     f,
                     "Malformed header value for `{header_name}`: {header_value}",
                 ),
-                Error::SingleHeaderRequired { header_name } => write!(
+                Self::SingleHeaderRequired { header_name } => write!(
                     f,
                     "Multiple occurrences of the header aren't allowed: {header_name}"
                 ),
                 #[cfg(feature = "forwarded-header")]
-                Error::ForwardedNoFor { header_value } => write!(
+                Self::ForwardedNoFor { header_value } => write!(
                     f,
                     "`Forwarded` header missing `for` directive: {header_value}",
                 ),
                 #[cfg(feature = "forwarded-header")]
-                Error::ForwardedObfuscated { header_value } => write!(
+                Self::ForwardedObfuscated { header_value } => write!(
                     f,
                     "`Forwarded` header contains obfuscated IP: {header_value}",
                 ),
                 #[cfg(feature = "forwarded-header")]
-                Error::ForwardedUnknown { header_value } => write!(
+                Self::ForwardedUnknown { header_value } => write!(
                     f,
                     "`Forwarded` header contains unknown identifier: {header_value}",
                 ),
