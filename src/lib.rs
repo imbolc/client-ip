@@ -43,9 +43,8 @@ pub fn cloudfront_viewer_address(header_map: &HeaderMap) -> Result<IpAddr> {
 
 /// Extracts client IP from `Fly-Client-IP` (Fly.io) header
 ///
-/// When [`FlyClientIp`] extractor is run for health check path,
-/// provide required `Fly-Client-IP` header through
-/// [`services.http_checks.headers`](https://fly.io/docs/reference/configuration/#services-http_checks)
+/// When the extractor is run for health check path, provide required
+/// `Fly-Client-IP` header through [`services.http_checks.headers`](https://fly.io/docs/reference/configuration/#services-http_checks)
 /// or [`http_service.checks.headers`](https://fly.io/docs/reference/configuration/#services-http_checks)
 pub fn fly_client_ip(header_map: &HeaderMap) -> Result<IpAddr> {
     ip_from_last_header(header_map, &HeaderName::from_static("fly-client-ip"))

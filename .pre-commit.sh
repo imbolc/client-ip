@@ -29,6 +29,7 @@ cargo machete
 cargo +nightly fmt -- --check
 cargo sort -c
 cargo clippy --all-targets --all-features -- -D warnings
+cargo rustdoc --all-features -- -D warnings
 
 cargo test --doc
 cargo test --all-targets

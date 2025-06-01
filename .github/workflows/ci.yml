@@ -37,6 +37,21 @@ jobs:
             - name: Clippy
               run: cargo clippy --all-targets --all-features -- -D warnings
 
+    rustdoc:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v3
+
+            - name: Stable Rust
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  components: clippy
+
+            - name: Rustdoc
+              run: cargo rustdoc --all-features -- -D warnings
+
     test:
         runs-on: ubuntu-latest
         steps:
