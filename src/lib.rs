@@ -37,8 +37,8 @@ pub fn cloudfront_viewer_address(header_map: &HeaderMap) -> Result<IpAddr> {
             })
     }
 
-    let header_value = last_header_value(header_map, &HEADER_NAME)?;
-    ip_from_header_value(header_value)
+    let header_value = AsciiHeaderValue::of_last_header(header_map, &HEADER_NAME)?;
+    ip_from_header_value(header_value.0)
 }
 
 /// Extracts client IP from `Fly-Client-IP` (Fly.io) header
@@ -86,11 +86,12 @@ pub fn rightmost_forwarded(header_map: &HeaderMap) -> Result<IpAddr> {
         }
     }
 
-    let header_value = last_header_value(header_map, &HEADER_NAME)?;
-    ip_from_header_value(header_value)
+    let header_value = AsciiHeaderValue::of_last_header(header_map, &HEADER_NAME)?;
+    ip_from_header_value(header_value.0)
 }
 
-/// Parses the rightmost IP from `X-Forwarded-For` header
+/// Extracts the rightmost IP address from the comma-separated list in the value
+/// of the last `X-Forwarded-For` header.
 pub fn rightmost_x_forwarded_for(header_map: &HeaderMap) -> Result<IpAddr> {
     const HEADER_NAME: HeaderName = HeaderName::from_static("x-forwarded-for");
 
@@ -110,8 +111,8 @@ pub fn rightmost_x_forwarded_for(header_map: &HeaderMap) -> Result<IpAddr> {
             })
     }
 
-    let header_value = last_header_value(header_map, &HEADER_NAME)?;
-    ip_from_header_value(header_value)
+    let header_value = AsciiHeaderValue::of_last_header(header_map, &HEADER_NAME)?;
+    ip_from_header_value(header_value.0)
 }
 
 /// Extracts client IP from `True-Client-IP` (Akamai, Cloudflare) header
@@ -124,63 +125,69 @@ pub fn x_real_ip(header_map: &HeaderMap) -> Result<IpAddr> {
     ip_from_single_header(header_map, &HeaderName::from_static("x-real-ip"))
 }
 
-/// Returns a decoded value of the last occurring header. Can also be used
-/// for a header occurring only once.
-fn last_header_value<'a>(header_map: &'a HeaderMap, header_name: &HeaderName) -> Result<&'a str> {
-    header_map
-        .get_all(header_name)
-        .into_iter()
-        .next_back()
-        .ok_or_else(|| Error::AbsentHeader {
-            header_name: header_name.to_owned(),
-        })?
-        .to_str()
-        .map_err(|_| Error::NonAsciiHeaderValue {
-            header_name: header_name.to_owned(),
-        })
-}
+/// A [`http::HeaderValue`] converted to string and ensured to be valid ASCII
+#[derive(Debug)]
+struct AsciiHeaderValue<'a>(&'a str);
 
-/// Returns a decoded value of a header that occurs only once. Multiple
-/// occurrences of the header are considered a proxy configuration error.
-fn single_header_value<'a>(header_map: &'a HeaderMap, header_name: &HeaderName) -> Result<&'a str> {
-    let mut iter = header_map.get_all(header_name).into_iter();
+impl<'a> AsciiHeaderValue<'a> {
+    /// Returns value of a header that must occur only once. Multiple
+    /// occurrences of the header are considered a critical proxy configuration
+    /// error.
+    fn of_single_header(header_map: &'a HeaderMap, header_name: &HeaderName) -> Result<Self> {
+        let mut iter = header_map.get_all(header_name).into_iter();
 
-    let Some(header_value) = iter.next() else {
-        return Err(Error::AbsentHeader {
-            header_name: header_name.to_owned(),
-        });
-    };
+        let Some(header_value) = iter.next() else {
+            return Err(Error::AbsentHeader {
+                header_name: header_name.to_owned(),
+            });
+        };
 
-    if iter.next().is_some() {
-        return Err(Error::SingleHeaderRequired {
-            header_name: header_name.to_owned(),
-        });
+        if iter.next().is_some() {
+            return Err(Error::SingleHeaderRequired {
+                header_name: header_name.to_owned(),
+            });
+        }
+
+        header_value
+            .to_str()
+            .map_err(|_| Error::NonAsciiHeaderValue {
+                header_name: header_name.to_owned(),
+            })
+            .map(Self)
     }
 
-    header_value
-        .to_str()
-        .map_err(|_| Error::NonAsciiHeaderValue {
-            header_name: header_name.to_owned(),
-        })
-}
+    /// Returns a value of the last occurring header.
+    fn of_last_header(header_map: &'a HeaderMap, header_name: &HeaderName) -> Result<Self> {
+        header_map
+            .get_all(header_name)
+            .into_iter()
+            .next_back()
+            .ok_or_else(|| Error::AbsentHeader {
+                header_name: header_name.to_owned(),
+            })?
+            .to_str()
+            .map_err(|_| Error::NonAsciiHeaderValue {
+                header_name: header_name.to_owned(),
+            })
+            .map(Self)
+    }
 
-/// Parses IP from decoded header value.
-/// Assumes the whole header value is a valid IP.
-fn ip_from_header_value(header_name: &HeaderName, header_value: &str) -> Result<IpAddr> {
-    header_value
-        .trim()
-        .parse()
-        .map_err(|_| Error::MalformedHeaderValue {
-            header_name: header_name.to_owned(),
-            header_value: header_value.to_owned(),
-        })
+    /// Tries to parse the whole value as an IP.
+    fn parse_ip(&self, header_name: &HeaderName) -> Result<IpAddr> {
+        self.0
+            .trim()
+            .parse()
+            .map_err(|_| Error::MalformedHeaderValue {
+                header_name: header_name.to_owned(),
+                header_value: self.0.to_owned(),
+            })
+    }
 }
 
 /// Parses an IP from a header that occurs only once. Multiple
 /// occurrences of the header are considered a proxy configuration error.
 fn ip_from_single_header(header_map: &HeaderMap, header_name: &HeaderName) -> Result<IpAddr> {
-    let header_value = single_header_value(header_map, header_name)?;
-    ip_from_header_value(header_name, header_value)
+    AsciiHeaderValue::of_single_header(header_map, header_name)?.parse_ip(header_name)
 }
 
 mod error {
@@ -188,7 +195,7 @@ mod error {
 
     use http::HeaderName;
 
-    /// The crate error
+    /// Errors that can occur during IP extraction
     #[derive(Debug, PartialEq)]
     pub enum Error {
         /// The IP-related header is missing
@@ -218,16 +225,19 @@ mod error {
             /// Header name
             header_name: HeaderName,
         },
+        #[cfg(feature = "forwarded-header")]
         /// Forwarded header doesn't contain `for` directive
         ForwardedNoFor {
             /// Header value
             header_value: String,
         },
+        #[cfg(feature = "forwarded-header")]
         /// RFC 7239 allows to [obfuscate IPs](https://www.rfc-editor.org/rfc/rfc7239.html#section-6.3)
         ForwardedObfuscated {
             /// Header value
             header_value: String,
         },
+        #[cfg(feature = "forwarded-header")]
         /// RFC 7239 allows [unknown identifiers](https://www.rfc-editor.org/rfc/rfc7239.html#section-6.2)
         ForwardedUnknown {
             /// Header value
@@ -254,16 +264,19 @@ mod error {
                 ),
                 Error::SingleHeaderRequired { header_name } => write!(
                     f,
-                    "Muitiple occurrences of the header are't allowed: {header_name}"
+                    "Multiple occurrences of the header aren't allowed: {header_name}"
                 ),
+                #[cfg(feature = "forwarded-header")]
                 Error::ForwardedNoFor { header_value } => write!(
                     f,
                     "`Forwarded` header missing `for` directive: {header_value}",
                 ),
+                #[cfg(feature = "forwarded-header")]
                 Error::ForwardedObfuscated { header_value } => write!(
                     f,
                     "`Forwarded` header contains obfuscated IP: {header_value}",
                 ),
+                #[cfg(feature = "forwarded-header")]
                 Error::ForwardedUnknown { header_value } => write!(
                     f,
                     "`Forwarded` header contains unknown identifier: {header_value}",
@@ -291,62 +304,67 @@ mod tests {
     }
 
     #[test]
-    fn test_last_header_value() {
+    fn test_ascii_header_value_of_last_header() {
         let header_name_str = "my-header";
         let header_name = HeaderName::from_static(header_name_str);
 
         assert_eq!(
-            last_header_value(&headers([]), &header_name).unwrap_err(),
+            AsciiHeaderValue::of_last_header(&headers([]), &header_name).unwrap_err(),
             Error::AbsentHeader {
                 header_name: header_name.clone()
             }
         );
 
         assert_eq!(
-            last_header_value(&headers([(header_name_str, "ы")]), &header_name).unwrap_err(),
+            AsciiHeaderValue::of_last_header(&headers([(header_name_str, "ы")]), &header_name)
+                .unwrap_err(),
             Error::NonAsciiHeaderValue {
                 header_name: header_name.clone()
             }
         );
 
         assert_eq!(
-            last_header_value(&headers([(header_name_str, "foo")]), &header_name).unwrap(),
+            AsciiHeaderValue::of_last_header(&headers([(header_name_str, "foo")]), &header_name)
+                .unwrap()
+                .0,
             "foo",
             "single valid header"
         );
 
         assert_eq!(
-            last_header_value(
+            AsciiHeaderValue::of_last_header(
                 &headers([(header_name_str, "foo"), (header_name_str, "bar")]),
                 &header_name
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             "bar",
             "multiple valid headers"
         );
     }
 
     #[test]
-    fn test_single_header_value() {
+    fn test_ascii_header_value_of_single_header() {
         let header_name_str = "my-header";
         let header_name = HeaderName::from_static(header_name_str);
 
         assert_eq!(
-            single_header_value(&headers([]), &header_name).unwrap_err(),
+            AsciiHeaderValue::of_single_header(&headers([]), &header_name).unwrap_err(),
             Error::AbsentHeader {
                 header_name: header_name.clone()
             }
         );
 
         assert_eq!(
-            last_header_value(&headers([(header_name_str, "ы")]), &header_name).unwrap_err(),
+            AsciiHeaderValue::of_single_header(&headers([(header_name_str, "ы")]), &header_name)
+                .unwrap_err(),
             Error::NonAsciiHeaderValue {
                 header_name: header_name.clone()
             }
         );
 
         assert_eq!(
-            single_header_value(
+            AsciiHeaderValue::of_single_header(
                 &headers([(header_name_str, "foo"), (header_name_str, "bar")]),
                 &header_name
             )
@@ -357,7 +375,9 @@ mod tests {
         );
 
         assert_eq!(
-            single_header_value(&headers([(header_name_str, "foo")]), &header_name).unwrap(),
+            AsciiHeaderValue::of_single_header(&headers([(header_name_str, "foo")]), &header_name)
+                .unwrap()
+                .0,
             "foo"
         );
     }

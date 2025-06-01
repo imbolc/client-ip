@@ -4,14 +4,16 @@
 [![Crates.io](https://img.shields.io/crates/v/client-ip.svg)](https://crates.io/crates/client-ip)
 [![Docs.rs](https://docs.rs/client-ip/badge.svg)](https://docs.rs/client-ip)
 
-Secure extraction of a client IP from [http::HeaderMap][]. The code is initially
-extracted from [axum-client-ip][] crate for non-axum use.
+Secure extraction of a client IP from [http::HeaderMap]. The code was initially
+extracted from the [axum-client-ip] crate for non-axum use.
 
 If you're maintaining client IP extraction in other frameworks based on [http],
 consider using this crate, so we can handle security-sensitive code in one
-place. Look at the [axum-client-ip][] integration for reference.
+place. Look at the [axum-client-ip] integration for reference.
 
 ## Supported extractors
+
+Open an issue if there's an uncovered header or send a PR straight away.
 
 | Extractor                     | Header Used                 | Typical Proxy / Service                                 |
 | ----------------------------- | --------------------------- | ------------------------------------------------------- |
