@@ -4,7 +4,11 @@ edition = "2024"
 license = "MIT"
 name = "client-ip"
 repository = "https://github.com/imbolc/client-ip"
-version = "0.1.0"
+version = "0.1.1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
