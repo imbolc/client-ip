@@ -12,6 +12,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
+# Enables `rightmost_forwarded` extractor
 forwarded-header = ["dep:forwarded-header-value"]
 
 [dependencies]
