@@ -121,6 +121,14 @@ pub fn true_client_ip(header_map: &HeaderMap) -> Result<IpAddr> {
     ip_from_single_header(header_map, &HeaderName::from_static("true-client-ip"))
 }
 
+/// Extracts client IP from `X-Envoy-External-Address` header
+pub fn x_envoy_external_address(header_map: &HeaderMap) -> Result<IpAddr> {
+    ip_from_single_header(
+        header_map,
+        &HeaderName::from_static("x-envoy-external-address"),
+    )
+}
+
 /// Extracts client IP from `X-Real-Ip` (Nginx) header
 pub fn x_real_ip(header_map: &HeaderMap) -> Result<IpAddr> {
     ip_from_single_header(header_map, &HeaderName::from_static("x-real-ip"))
@@ -640,6 +648,40 @@ mod tests {
         );
         assert_eq!(
             true_client_ip(&headers([(header, VALID_IPV6)])).unwrap(),
+            VALID_IPV6.parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_x_envoy_external_address() {
+        let header = "x-envoy-external-address";
+
+        assert_eq!(
+            x_envoy_external_address(&headers([])).unwrap_err(),
+            Error::AbsentHeader {
+                header_name: HeaderName::from_static(header)
+            }
+        );
+        assert_eq!(
+            x_envoy_external_address(&headers([(header, "ы")])).unwrap_err(),
+            Error::NonAsciiHeaderValue {
+                header_name: HeaderName::from_static(header)
+            }
+        );
+        assert_eq!(
+            x_envoy_external_address(&headers([(header, "foo")])).unwrap_err(),
+            Error::MalformedHeaderValue {
+                header_name: HeaderName::from_static(header),
+                header_value: "foo".into(),
+            }
+        );
+
+        assert_eq!(
+            x_envoy_external_address(&headers([(header, VALID_IPV4)])).unwrap(),
+            VALID_IPV4.parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(
+            x_envoy_external_address(&headers([(header, VALID_IPV6)])).unwrap(),
             VALID_IPV6.parse::<IpAddr>().unwrap()
         );
     }

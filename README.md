@@ -23,6 +23,7 @@ Open an issue if there's an uncovered header or send a PR straight away.
 | [`rightmost_forwarded`]       | `Forwarded`                 | Proxies supporting RFC 7239 (extracts rightmost `for=`) |
 | [`rightmost_x_forwarded_for`] | `X-Forwarded-For`           | Nginx, Apache, HAProxy, CDNs, LBs                       |
 | [`true_client_ip`]            | `True-Client-IP`            | Cloudflare, Akamai                                      |
+| [`x_envoy_external_address`]  | `X-Envoy-External-Address`  | Envoy                                                   |
 | [`x_real_ip`]                 | `X-Real-Ip`                 | Nginx                                                   |
 
 ## Contributing
